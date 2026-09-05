@@ -1,0 +1,174 @@
+{{- $authSecret := include "github-actions-ingester.authSecretName" . -}}
+{{- $dbSecret := include "github-actions-ingester.databaseSecretName" . -}}
+{{- if not $authSecret }}
+{{- fail "github-actions-ingester: set auth.existingSecret, auth.token or auth.app.id" }}
+{{- end }}
+{{- if not $dbSecret }}
+{{- fail "github-actions-ingester: set database.existingSecret or database.url" }}
+{{- end }}
+{{- if and (not .Values.config.orgs) (not .Values.config.repos) }}
+{{- fail "github-actions-ingester: set config.orgs and/or config.repos" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "github-actions-ingester.fullname" . }}
+  labels:
+    {{- include "github-actions-ingester.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  # With the HPA enabled `replicas` is omitted so the HPA owns the field
+  # and GitOps tools do not fight over it.
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  strategy:
+    type: {{ .Values.strategy.type | default "Recreate" }}
+    {{- if and (eq (.Values.strategy.type | default "Recreate") "RollingUpdate") .Values.strategy.rollingUpdate }}
+    rollingUpdate:
+      {{- toYaml .Values.strategy.rollingUpdate | nindent 6 }}
+    {{- end }}
+  selector:
+    matchLabels:
+      {{- include "github-actions-ingester.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "github-actions-ingester.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      annotations:
+        {{- if not .Values.serviceMonitor.enabled }}
+        # Without a ServiceMonitor, the legacy prometheus.io/* annotations
+        # let annotation-based scrapers (Prometheus, Alloy) find the pod.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.service.port | quote }}
+        prometheus.io/path: "/metrics"
+        {{- end }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "github-actions-ingester.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken | default false }}
+      {{- if .Values.priorityClassName }}
+      priorityClassName: {{ .Values.priorityClassName | quote }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 30 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
+      securityContext:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: ingester
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.containerSecurityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          envFrom:
+            # GitHub credential: the keys ARE the env vars (GHA_GITHUB_TOKEN
+            # or GHA_GITHUB_APP_ID + GHA_GITHUB_APP_PRIVATE_KEY [+ _INSTALLATION_ID]).
+            - secretRef:
+                name: {{ $authSecret }}
+          env:
+            - name: GHA_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $dbSecret }}
+                  key: {{ include "github-actions-ingester.databaseSecretKey" . }}
+            - name: GHA_DATABASE_SCHEMA
+              value: {{ .Values.database.schema | quote }}
+            - name: GHA_DATABASE_CONNECT_TIMEOUT_SECONDS
+              value: {{ .Values.database.connectTimeoutSeconds | quote }}
+            - name: GHA_ORGS
+              value: {{ .Values.config.orgs | quote }}
+            - name: GHA_REPOS
+              value: {{ .Values.config.repos | quote }}
+            - name: GHA_EXCLUDE_REPOS
+              value: {{ .Values.config.excludeRepos | quote }}
+            - name: GHA_INCLUDE_ARCHIVED
+              value: {{ .Values.config.includeArchived | quote }}
+            - name: GHA_GITHUB_API_BASE
+              value: {{ .Values.config.apiBase | quote }}
+            - name: GHA_API_RATE_LIMIT_RPS
+              value: {{ .Values.config.apiRateLimitRps | quote }}
+            - name: GHA_API_MIN_REMAINING
+              value: {{ .Values.config.apiMinRemaining | quote }}
+            - name: GHA_API_TIMEOUT_SECONDS
+              value: {{ .Values.config.apiTimeoutSeconds | quote }}
+            - name: GHA_API_MAX_RETRIES
+              value: {{ .Values.config.apiMaxRetries | quote }}
+            - name: GHA_POLL_INTERVAL_SECONDS
+              value: {{ .Values.config.pollIntervalSeconds | quote }}
+            - name: GHA_BACKFILL_DAYS
+              value: {{ .Values.config.backfillDays | quote }}
+            - name: GHA_LOOKBACK_MINUTES
+              value: {{ .Values.config.lookbackMinutes | quote }}
+            - name: GHA_REPO_REFRESH_SECONDS
+              value: {{ .Values.config.repoRefreshSeconds | quote }}
+            - name: GHA_MAX_OPEN_RUN_REFRESH
+              value: {{ .Values.config.maxOpenRunRefresh | quote }}
+            - name: GHA_JOBS_FILTER
+              value: {{ .Values.config.jobsFilter | quote }}
+            - name: GHA_SYNC_SCHEDULES
+              value: {{ .Values.config.syncSchedules | quote }}
+            - name: GHA_SCHEDULE_REFRESH_SECONDS
+              value: {{ .Values.config.scheduleRefreshSeconds | quote }}
+            - name: GHA_LISTEN_HOST
+              value: "0.0.0.0"
+            - name: GHA_LISTEN_PORT
+              value: {{ .Values.service.port | quote }}
+            - name: GHA_LOG_LEVEL
+              value: {{ .Values.config.logLevel | quote }}
+            - name: GHA_LOG_FORMAT
+              value: {{ .Values.config.logFormat | quote }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- with .Values.probes.liveness }}
+          livenessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.probes.readiness }}
+          readinessProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.probes.startup }}
+          startupProbe:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        # Read-only root filesystem: the only writable path is /tmp
+        # (psycopg/httpx never write there, but Python may for temp files).
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

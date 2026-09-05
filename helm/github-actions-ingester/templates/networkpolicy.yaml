@@ -1,0 +1,71 @@
+{{- /*
+  NetworkPolicy — ingress from listed scrapers only (empty list = deny
+  all ingress); egress split into DNS, GitHub API (public 443 except
+  RFC1918), the PostgreSQL peers you name, and verbatim extras.
+*/ -}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "github-actions-ingester.fullname" . }}
+  labels:
+    {{- include "github-actions-ingester.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "github-actions-ingester.selectorLabels" . | nindent 6 }}
+  policyTypes:
+    - Ingress
+    - Egress
+  {{- with .Values.networkPolicy.ingress.from }}
+  ingress:
+    - from:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - port: http
+          protocol: TCP
+  {{- else }}
+  # ingress.from is empty — deny all ingress.
+  ingress: []
+  {{- end }}
+  egress:
+    {{- if .Values.networkPolicy.egress.allowDNS }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - port: 53
+          protocol: UDP
+        - port: 53
+          protocol: TCP
+    {{- end }}
+    {{- if .Values.networkPolicy.egress.allowGitHubAPI }}
+    # HTTPS to the public internet for api.github.com; RFC1918 and the
+    # link-local/metadata range stay closed.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - port: 443
+          protocol: TCP
+    {{- end }}
+    {{- with .Values.networkPolicy.egress.database.to }}
+    - to:
+        {{- toYaml . | nindent 8 }}
+      ports:
+        - port: {{ $.Values.networkPolicy.egress.database.port | default 5432 }}
+          protocol: TCP
+    {{- end }}
+    {{- with .Values.networkPolicy.egress.extra }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+{{- end }}

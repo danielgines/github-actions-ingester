@@ -1,0 +1,248 @@
+# Default values for github-actions-ingester. Every setting documented
+# inline; override only what you need.
+
+image:
+  repository: ghcr.io/danielgines/github-actions-ingester
+  tag: ""  # defaults to .Chart.appVersion
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# Single writer by design. Each replica would run its own ingestion loop
+# against the same repositories: double the GitHub API spend, and the
+# per-repository cursor would be written by two loops at once. The shipped
+# HPA (see `autoscaling`) is compliance-only and pins replicas at 1.
+replicaCount: 1
+
+# Recreate: with one replica a rolling update means a short gap anyway,
+# and two ingesters must never overlap on the same schema.
+strategy:
+  type: Recreate
+
+# -- GitHub credential. Pick ONE shape:
+#
+# 1. `existingSecret`: a pre-created Secret whose keys are the env vars
+#    themselves — either `GHA_GITHUB_TOKEN`, or `GHA_GITHUB_APP_ID` +
+#    `GHA_GITHUB_APP_PRIVATE_KEY` (+ optional `GHA_GITHUB_APP_INSTALLATION_ID`).
+#    Recommended: pair with External Secrets Operator so the credential
+#    flows from Vault / cloud secret managers. The Secret is mounted with
+#    envFrom, so any other `GHA_*` key in it is honoured too.
+# 2. Inline values below (`token` or `app.*`). Convenient for local tests
+#    only — the chart wraps them in a Secret. Never commit real values.
+#
+# The GitHub App is the least-privilege shape: create it inside your own
+# organization from the manifest in examples/github-app/ (Actions:read,
+# Metadata:read, Contents:read), install it on the repositories you want,
+# done. The ingester discovers the installation on its own.
+auth:
+  existingSecret: ""           # e.g. "github-actions-ingester-github"
+  token: ""                    # PAT — mutually exclusive with app.id
+  app:
+    id: ""                     # App ID (or client ID)
+    privateKey: ""             # PEM; literal newlines or "\n" both work
+    installationId: ""         # optional — auto-discovered when empty
+
+# -- PostgreSQL connection. Pick ONE shape:
+#
+# 1. `existingSecret`: Secret with key `GHA_DATABASE_URL` (libpq URL,
+#    e.g. postgresql://gha:pass@postgres-rw.db.svc:5432/gha?sslmode=require).
+#    Operators such as CloudNativePG publish exactly this kind of Secret.
+# 2. `url` inline (local tests only).
+#
+# The role needs CREATE on the database the first time (schema bootstrap)
+# and read/write afterwards. On start the ingester creates the schema and
+# applies its embedded migrations; on upgrade it applies only the new
+# ones; otherwise it does nothing.
+database:
+  existingSecret: ""
+  existingSecretKey: "GHA_DATABASE_URL"
+  url: ""
+  schema: "gha"                # every table lives here; created if missing
+  connectTimeoutSeconds: 10
+
+# Ingestion behaviour — passed through as GHA_* env vars. Bounds mirror
+# src/github_actions_ingester/config.py.
+config:
+  # --- Scope (at least one of orgs / repos is required) ---
+  orgs: ""                     # comma-separated organizations
+  repos: ""                    # comma-separated owner/name
+  excludeRepos: ""             # comma-separated globs on owner/name
+  includeArchived: false
+
+  # --- GitHub API ---
+  apiBase: "https://api.github.com"   # GHES: https://ghe.example.com/api/v3
+  apiRateLimitRps: 5.0
+  apiMinRemaining: 200         # pause when the hourly budget drops under this
+  apiTimeoutSeconds: 30
+  apiMaxRetries: 4
+
+  # --- Cadence ---
+  pollIntervalSeconds: 300
+  backfillDays: 30             # first cycle per repository goes this far back
+  lookbackMinutes: 180         # re-list this window every cycle to catch status changes
+  repoRefreshSeconds: 3600     # repository / workflow inventory refresh
+  maxOpenRunRefresh: 200       # per-cycle cap on individual refresh of stale open runs
+  jobsFilter: "all"            # all | latest (run attempts)
+  syncSchedules: true          # read workflow files for on.schedule (needs Contents:read)
+  scheduleRefreshSeconds: 21600
+
+  # --- Logging ---
+  logLevel: "info"             # debug | info | warning | error
+  logFormat: "json"            # json | console
+
+# Extra environment variables appended verbatim (raw EnvVar objects).
+extraEnv: []
+
+service:
+  type: ClusterIP
+  port: 9619
+  annotations: {}
+
+# Prometheus Operator integration.
+serviceMonitor:
+  enabled: false
+  interval: 60s
+  scrapeTimeout: 30s
+  labels: {}
+  relabelings: []
+  metricRelabelings: []
+  honorLabels: false
+
+# Alert rules for Prometheus Operator: ingester down / stale, GitHub rate
+# limit nearly exhausted, scheduled workflow that stopped firing.
+prometheusRule:
+  enabled: false
+  labels: {}
+  # A scheduled workflow is "stopped" when its last scheduled run is older
+  # than `scheduledMissedMultiplier` × its expected interval (plus
+  # `scheduledGraceSeconds` for GitHub's own scheduling delays).
+  scheduledMissedMultiplier: 2
+  scheduledGraceSeconds: 1800
+  ingesterStaleSeconds: 1800
+  rateLimitRemainingThreshold: 300
+  additionalRules: []
+
+# The ingester is light between cycles (~40 MB) and CPU-bound only while
+# parsing large backfills.
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  capabilities:
+    drop: ["ALL"]
+
+# /readyz answers 503 until the schema is bootstrapped and the first
+# cycle finished, so a rollout waits for the database to be reachable.
+# The first cycle of a large backfill can take minutes: the readiness
+# failureThreshold is generous on purpose. Liveness only checks the HTTP
+# server.
+probes:
+  liveness:
+    httpGet:
+      path: /healthz
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 30
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    httpGet:
+      path: /readyz
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 180
+  startup: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podLabels: {}
+podAnnotations: {}
+priorityClassName: ""
+
+# SIGTERM ends the cycle at the next safe point; upserts are transactional
+# so an interrupted cycle is simply repeated by the next one.
+terminationGracePeriodSeconds: 30
+
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+  # The ingester never talks to the Kubernetes API.
+  automountServiceAccountToken: false
+
+# PodDisruptionBudget: maxUnavailable 1 is a no-op with one replica but
+# satisfies "every workload has a PDB" policies without blocking drains.
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+  unhealthyPodEvictionPolicy: AlwaysAllow
+  # minAvailable: 1
+  annotations: {}
+
+# HorizontalPodAutoscaler — COMPLIANCE-ONLY. min == max == 1 keeps
+# "every Deployment has an HPA" policies happy without ever scaling a
+# single-writer ingester out. When enabled, spec.replicas is omitted from
+# the Deployment so the HPA owns the field (no GitOps drift loop).
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 1
+  targetCPUUtilizationPercentage: 80
+  metrics: []
+  behavior: {}
+  annotations: {}
+
+# NetworkPolicy — ingress from known scrapers only; egress to DNS, the
+# GitHub API and your PostgreSQL. Opt-in: a wrong policy breaks the
+# ingester silently, and it needs a CNI that enforces NetworkPolicy.
+networkPolicy:
+  enabled: false
+  ingress:
+    from: []
+    # from:
+    #   - namespaceSelector:
+    #       matchLabels:
+    #         kubernetes.io/metadata.name: monitoring
+    #     podSelector:
+    #       matchLabels:
+    #         app.kubernetes.io/name: prometheus
+  egress:
+    allowDNS: true
+    # HTTPS to the public internet except RFC1918 (api.github.com rotates
+    # IPs). Turn off and use `extra` with an FQDN rule on Cilium/Calico
+    # Enterprise, or when talking to an on-premise GHES on a private IP.
+    allowGitHubAPI: true
+    # PostgreSQL: the database is usually inside RFC1918, so name it here.
+    # `to` is a raw NetworkPolicyPeer list; empty = no database rule.
+    database:
+      port: 5432
+      to: []
+      # to:
+      #   - namespaceSelector:
+      #       matchLabels:
+      #         kubernetes.io/metadata.name: cnpg-system
+      #     podSelector:
+      #       matchLabels:
+      #         cnpg.io/cluster: platform-postgres
+    extra: []

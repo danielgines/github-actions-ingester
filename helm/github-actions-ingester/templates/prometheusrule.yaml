@@ -1,0 +1,84 @@
+{{- /*
+  PrometheusRule — alerts on the ingester itself and on scheduled
+  workflows that stopped firing. Thresholds are values; rules can be
+  extended verbatim with prometheusRule.additionalRules.
+*/ -}}
+{{- if .Values.prometheusRule.enabled }}
+{{- $pr := .Values.prometheusRule }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "github-actions-ingester.fullname" . }}
+  labels:
+    {{- include "github-actions-ingester.labels" . | nindent 4 }}
+    {{- with $pr.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: github-actions-ingester
+      rules:
+        - alert: GitHubActionsIngesterDown
+          expr: gha_ingester_up == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "github-actions-ingester last cycle failed"
+            description: "The last ingestion cycle ended in error for 15 minutes ({{ "{{" }} $labels.instance {{ "}}" }}). Check the pod logs."
+        - alert: GitHubActionsIngesterStale
+          expr: time() - gha_ingester_last_success_timestamp_seconds > {{ $pr.ingesterStaleSeconds }}
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "github-actions-ingester has not completed a cycle recently"
+            description: "No successful cycle for more than {{ $pr.ingesterStaleSeconds }}s. The SQL data is going stale."
+        - alert: GitHubActionsIngesterRateLimitLow
+          expr: gha_ingester_github_rate_limit_remaining < {{ $pr.rateLimitRemainingThreshold }}
+          for: 10m
+          labels:
+            severity: info
+          annotations:
+            summary: "GitHub API budget nearly exhausted"
+            description: "Fewer than {{ $pr.rateLimitRemainingThreshold }} requests remain in the current window. Lower config.apiRateLimitRps or widen config.pollIntervalSeconds."
+    - name: github-actions-scheduled-workflows
+      rules:
+        - alert: GitHubScheduledWorkflowStopped
+          expr: |
+            (
+              time() - gha_scheduled_workflow_last_run_timestamp_seconds
+              > {{ $pr.scheduledMissedMultiplier }} * gha_scheduled_workflow_interval_seconds + {{ $pr.scheduledGraceSeconds }}
+            )
+            and gha_scheduled_workflow_interval_seconds > 0
+            and gha_scheduled_workflow_last_run_timestamp_seconds > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Scheduled workflow {{ "{{" }} $labels.repository {{ "}}" }}/{{ "{{" }} $labels.workflow {{ "}}" }} stopped firing"
+            description: "Expected every {{ "{{" }} $value | humanizeDuration {{ "}}" }}; the last scheduled run is older than {{ $pr.scheduledMissedMultiplier }}x that interval. GitHub disables schedules on inactive repositories after 60 days, and a workflow file may have been removed from the default branch."
+        - alert: GitHubScheduledWorkflowNeverRan
+          expr: |
+            gha_scheduled_workflow_last_run_timestamp_seconds == 0
+            and gha_scheduled_workflow_interval_seconds > 0
+          for: 24h
+          labels:
+            severity: info
+          annotations:
+            summary: "Scheduled workflow {{ "{{" }} $labels.repository {{ "}}" }}/{{ "{{" }} $labels.workflow {{ "}}" }} has no scheduled run on record"
+            description: "The workflow declares a cron schedule but no run with event=schedule exists within the backfill window."
+        - alert: GitHubScheduledWorkflowFailing
+          expr: gha_scheduled_workflow_last_conclusion{conclusion="failure"} == 1
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Last scheduled run of {{ "{{" }} $labels.repository {{ "}}" }}/{{ "{{" }} $labels.workflow {{ "}}" }} failed"
+            description: "The most recent completed scheduled run ended in failure."
+    {{- with $pr.additionalRules }}
+    - name: github-actions-ingester-additional
+      rules:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
+{{- end }}

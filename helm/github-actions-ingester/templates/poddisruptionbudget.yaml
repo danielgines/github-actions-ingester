@@ -1,0 +1,32 @@
+{{- /*
+  PodDisruptionBudget — satisfies "every workload must have a PDB"
+  policies while staying drain-friendly. maxUnavailable: 1 with a single
+  replica is a no-op (drains proceed); unhealthyPodEvictionPolicy:
+  AlwaysAllow (k8s 1.27+) keeps a wedged pod from blocking maintenance.
+  `minAvailable` is mutually exclusive with `maxUnavailable` and only
+  makes sense with several replicas.
+*/ -}}
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "github-actions-ingester.fullname" . }}
+  labels:
+    {{- include "github-actions-ingester.labels" . | nindent 4 }}
+  {{- with .Values.podDisruptionBudget.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if .Values.podDisruptionBudget.minAvailable }}
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  {{- else }}
+  maxUnavailable: {{ .Values.podDisruptionBudget.maxUnavailable | default 1 }}
+  {{- end }}
+  {{- with .Values.podDisruptionBudget.unhealthyPodEvictionPolicy }}
+  unhealthyPodEvictionPolicy: {{ . }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "github-actions-ingester.selectorLabels" . | nindent 6 }}
+{{- end }}

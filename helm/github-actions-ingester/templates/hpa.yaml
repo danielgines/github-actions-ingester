@@ -1,0 +1,42 @@
+{{- /*
+  HorizontalPodAutoscaler — COMPLIANCE-ONLY. The ingester is a single
+  writer (one ingestion loop, one cursor per repository); a second
+  replica doubles the GitHub API spend and races on the cursors. This
+  template exists for clusters with mandatory-HPA policies: min == max
+  == 1 is accepted by Kubernetes and simply pins the replica count.
+*/ -}}
+{{- if .Values.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "github-actions-ingester.fullname" . }}
+  labels:
+    {{- include "github-actions-ingester.labels" . | nindent 4 }}
+  annotations:
+    github-actions-ingester.io/hpa-purpose: "policy-compliance-only"
+    {{- with .Values.autoscaling.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "github-actions-ingester.fullname" . }}
+  minReplicas: {{ .Values.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.autoscaling.maxReplicas }}
+  metrics:
+    {{- if .Values.autoscaling.metrics }}
+    {{- toYaml .Values.autoscaling.metrics | nindent 4 }}
+    {{- else }}
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.autoscaling.targetCPUUtilizationPercentage | default 80 }}
+    {{- end }}
+  {{- with .Values.autoscaling.behavior }}
+  behavior:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}

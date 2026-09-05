@@ -1,0 +1,19 @@
+# Grafana datasource pointing at the schema the ingester writes.
+# The `gha` role is the same one the ingester uses in this local stack; in
+# production give Grafana a read-only role (see README "Grafana").
+apiVersion: 1
+datasources:
+  - name: github-actions
+    uid: github-actions
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: postgres:5432
+    user: gha
+    secureJsonData:
+      password: gha
+    jsonData:
+      database: gha
+      sslmode: disable
+      postgresVersion: 1700
+      timescaledb: false
+    editable: true

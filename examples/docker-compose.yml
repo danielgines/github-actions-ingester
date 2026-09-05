@@ -1,0 +1,61 @@
+# Local stack: PostgreSQL + the ingester + Grafana with the dashboard
+# pre-provisioned. Set the credential and the scope in the environment or
+# in a `.env` next to this file, then `docker compose up -d`.
+#
+#   GHA_GITHUB_TOKEN=ghp_...   (or the GHA_GITHUB_APP_* trio)
+#   GHA_ORGS=my-org            (and/or GHA_REPOS=owner/name,owner/other)
+#
+# Grafana: http://localhost:3000 (admin / admin) → "GitHub Actions insights"
+# Ingester: http://localhost:9619/metrics
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: gha
+      POSTGRES_PASSWORD: gha
+      POSTGRES_DB: gha
+    ports: ["127.0.0.1:5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gha -d gha"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  github-actions-ingester:
+    image: ghcr.io/danielgines/github-actions-ingester:latest
+    # Built locally by `just compose-up`; drop this line to pull from GHCR.
+    build: ..
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      GHA_DATABASE_URL: postgresql://gha:gha@postgres:5432/gha
+      GHA_GITHUB_TOKEN: ${GHA_GITHUB_TOKEN:-}
+      GHA_GITHUB_APP_ID: ${GHA_GITHUB_APP_ID:-}
+      GHA_GITHUB_APP_PRIVATE_KEY: ${GHA_GITHUB_APP_PRIVATE_KEY:-}
+      GHA_GITHUB_APP_INSTALLATION_ID: ${GHA_GITHUB_APP_INSTALLATION_ID:-}
+      GHA_ORGS: ${GHA_ORGS:-}
+      GHA_REPOS: ${GHA_REPOS:-}
+      GHA_BACKFILL_DAYS: ${GHA_BACKFILL_DAYS:-30}
+      GHA_POLL_INTERVAL_SECONDS: ${GHA_POLL_INTERVAL_SECONDS:-300}
+      GHA_LOG_FORMAT: console
+    ports: ["127.0.0.1:9619:9619"]
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    depends_on:
+      - postgres
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports: ["127.0.0.1:3000:3000"]
+    volumes:
+      - ./grafana-provisioning:/etc/grafana/provisioning:ro
+      - ./grafana-dashboard.json:/var/lib/grafana/dashboards/github-actions.json:ro
+
+volumes:
+  pgdata: {}

@@ -1,0 +1,177 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Python — lint + type-check + tests across supported versions.
+  # Integration tests run against a real PostgreSQL service container.
+  # ---------------------------------------------------------------------
+  lint-test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: gha
+          POSTGRES_PASSWORD: gha
+          POSTGRES_DB: gha
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U gha"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.x"
+
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: Sync dev deps
+        run: uv sync --extra dev
+
+      - name: Ruff check
+        run: uv run ruff check src tests
+
+      - name: Ruff format check
+        run: uv run ruff format --check src tests
+
+      - name: Mypy strict
+        run: uv run mypy src
+
+      - name: Pytest (unit + integration)
+        env:
+          GHA_TEST_DATABASE_URL: postgresql://gha:gha@localhost:5432/gha
+        run: uv run pytest -v --cov=github_actions_ingester --cov-report=term-missing
+
+      - name: Build sdist + wheel and check the metadata PyPI will see
+        run: |
+          uv build
+          rm -f dist/.gitignore
+          uvx twine check --strict dist/*
+
+  # ---------------------------------------------------------------------
+  # Helm — chart validates + renders with all features on
+  # ---------------------------------------------------------------------
+  helm-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.4
+      - name: Helm lint
+        run: helm lint helm/github-actions-ingester
+      - name: Helm template smoke (every feature flag on)
+        run: |
+          helm template t helm/github-actions-ingester \
+            --set auth.token=fake \
+            --set database.url=postgresql://u:p@db:5432/gha \
+            --set config.orgs=acme \
+            --set networkPolicy.enabled=true \
+            --set serviceMonitor.enabled=true \
+            --set prometheusRule.enabled=true \
+            --set autoscaling.enabled=true \
+            --set podDisruptionBudget.enabled=true \
+            > /tmp/render.yaml
+          kubectl --dry-run=client apply -f /tmp/render.yaml || true
+
+  # ---------------------------------------------------------------------
+  # Trivy — filesystem scan: deps + Dockerfile + Helm + IaC (report only)
+  # ---------------------------------------------------------------------
+  trivy-fs:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+      - name: Trivy filesystem scan (HIGH+CRITICAL, fixable)
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          format: sarif
+          output: trivy-fs.sarif
+          exit-code: "0"
+          skip-dirs: .venv,.pytest_cache,.mypy_cache,htmlcov
+      - name: Upload SARIF to GitHub Security
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-fs.sarif
+          category: trivy-fs
+
+  # ---------------------------------------------------------------------
+  # Trivy — image scan: build container + scan, GATE on CRITICAL
+  # ---------------------------------------------------------------------
+  trivy-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v4
+      - name: Build image (no cache, fresh apt-get upgrade)
+        # no-cache so the runtime stage's apt-get upgrade really runs and
+        # the scan reflects a fresh build, not a days-old cached layer.
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          load: true
+          no-cache: true
+          tags: github-actions-ingester:ci
+          build-args: |
+            GHA_VERSION=ci
+            GHA_REVISION=${{ github.sha }}
+      - name: Smoke the image (--version, migrate against a throwaway db is covered by pytest)
+        run: docker run --rm github-actions-ingester:ci github-actions-ingester --version
+      - name: Trivy image scan — GATE on CRITICAL
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: github-actions-ingester:ci
+          ignore-unfixed: true
+          severity: CRITICAL
+          format: sarif
+          output: trivy-image.sarif
+          exit-code: "1"
+      - name: Trivy image scan — also report HIGH (no gate)
+        if: always()
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: github-actions-ingester:ci
+          ignore-unfixed: true
+          severity: HIGH
+          format: sarif
+          output: trivy-image-high.sarif
+          exit-code: "0"
+      - name: Upload SARIF (CRITICAL)
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image.sarif
+          category: trivy-image-critical
+      - name: Upload SARIF (HIGH)
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-image-high.sarif
+          category: trivy-image-high

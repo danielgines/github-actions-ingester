@@ -1,0 +1,74 @@
+# Alert rules (rendered from the chart with prometheusRule.enabled=true). Adapt thresholds via chart values.
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: github-actions-ingester
+  labels:
+    helm.sh/chart: github-actions-ingester-0.1.0
+    app.kubernetes.io/name: github-actions-ingester
+    app.kubernetes.io/instance: github-actions-ingester
+    app.kubernetes.io/version: 0.1.0
+    app.kubernetes.io/managed-by: Helm
+spec:
+  groups:
+    - name: github-actions-ingester
+      rules:
+        - alert: GitHubActionsIngesterDown
+          expr: gha_ingester_up == 0
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: github-actions-ingester last cycle failed
+            description: The last ingestion cycle ended in error for 15 minutes ({{ $labels.instance }}). Check the pod logs.
+        - alert: GitHubActionsIngesterStale
+          expr: time() - gha_ingester_last_success_timestamp_seconds > 1800
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: github-actions-ingester has not completed a cycle recently
+            description: No successful cycle for more than 1800s. The SQL data is going stale.
+        - alert: GitHubActionsIngesterRateLimitLow
+          expr: gha_ingester_github_rate_limit_remaining < 300
+          for: 10m
+          labels:
+            severity: info
+          annotations:
+            summary: GitHub API budget nearly exhausted
+            description: Fewer than 300 requests remain in the current window. Lower config.apiRateLimitRps or widen config.pollIntervalSeconds.
+    - name: github-actions-scheduled-workflows
+      rules:
+        - alert: GitHubScheduledWorkflowStopped
+          expr: "(\n  time() - gha_scheduled_workflow_last_run_timestamp_seconds\n  > 2 * gha_scheduled_workflow_interval_seconds\
+            \ + 1800\n)\nand gha_scheduled_workflow_interval_seconds > 0\nand gha_scheduled_workflow_last_run_timestamp_seconds\
+            \ > 0\n"
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Scheduled workflow {{ $labels.repository }}/{{ $labels.workflow }} stopped firing
+            description: Expected every {{ $value | humanizeDuration }}; the last scheduled run is older than 2x that interval.
+              GitHub disables schedules on inactive repositories after 60 days, and a workflow file may have been removed
+              from the default branch.
+        - alert: GitHubScheduledWorkflowNeverRan
+          expr: 'gha_scheduled_workflow_last_run_timestamp_seconds == 0
+
+            and gha_scheduled_workflow_interval_seconds > 0
+
+            '
+          for: 24h
+          labels:
+            severity: info
+          annotations:
+            summary: Scheduled workflow {{ $labels.repository }}/{{ $labels.workflow }} has no scheduled run on record
+            description: The workflow declares a cron schedule but no run with event=schedule exists within the backfill window.
+        - alert: GitHubScheduledWorkflowFailing
+          expr: gha_scheduled_workflow_last_conclusion{conclusion="failure"} == 1
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: Last scheduled run of {{ $labels.repository }}/{{ $labels.workflow }} failed
+            description: The most recent completed scheduled run ended in failure.

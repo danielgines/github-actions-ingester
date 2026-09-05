@@ -1,0 +1,18 @@
+# ArtifactHub repository metadata.
+#
+# Uploaded to GHCR as an OCI artifact at
+#   ghcr.io/danielgines/charts/github-actions-ingester:artifacthub.io
+# (same OCI repo as the chart, dedicated `artifacthub.io` tag; layer media
+# type application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml).
+#
+# ArtifactHub reads it to verify that the publisher controls the chart.
+# The repositoryID must match what ArtifactHub assigns when the OCI repo
+# is registered there. Re-publish only when repositoryID or owners change;
+# per-release Chart.yaml bumps are picked up on the next scrape.
+#
+# Push it via:    just artifacthub-publish
+# (or the artifacthub-publish workflow on GitHub)
+repositoryID: REPLACE_AFTER_ARTIFACTHUB_REGISTRATION
+owners:
+  - name: Daniel Gines
+    email: 14093288+danielgines@users.noreply.github.com

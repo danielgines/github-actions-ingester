@@ -1,0 +1,154 @@
+# Plain manifests rendered from the Helm chart (helm template … --set auth.existingSecret=… --set database.existingSecret=…).
+# Use the chart when you can; this file exists for clusters without Helm.
+# Replace `my-org` and create the Secrets from secrets.example.yaml first.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: github-actions-ingester
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: github-actions-ingester
+spec:
+  type: ClusterIP
+  ports:
+    - port: 9619
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: github-actions-ingester
+    app.kubernetes.io/instance: github-actions-ingester
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-actions-ingester
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: github-actions-ingester
+      app.kubernetes.io/instance: github-actions-ingester
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: github-actions-ingester
+        app.kubernetes.io/instance: github-actions-ingester
+      annotations: null
+    spec:
+      serviceAccountName: github-actions-ingester
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ingester
+          image: ghcr.io/danielgines/github-actions-ingester:0.1.0
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+          ports:
+            - name: http
+              containerPort: 9619
+              protocol: TCP
+          envFrom:
+            - secretRef:
+                name: github-actions-ingester-github
+          env:
+            - name: GHA_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: github-actions-ingester-database
+                  key: GHA_DATABASE_URL
+            - name: GHA_DATABASE_SCHEMA
+              value: gha
+            - name: GHA_DATABASE_CONNECT_TIMEOUT_SECONDS
+              value: '10'
+            - name: GHA_ORGS
+              value: my-org
+            - name: GHA_REPOS
+              value: ''
+            - name: GHA_EXCLUDE_REPOS
+              value: ''
+            - name: GHA_INCLUDE_ARCHIVED
+              value: 'false'
+            - name: GHA_GITHUB_API_BASE
+              value: https://api.github.com
+            - name: GHA_API_RATE_LIMIT_RPS
+              value: '5'
+            - name: GHA_API_MIN_REMAINING
+              value: '200'
+            - name: GHA_API_TIMEOUT_SECONDS
+              value: '30'
+            - name: GHA_API_MAX_RETRIES
+              value: '4'
+            - name: GHA_POLL_INTERVAL_SECONDS
+              value: '300'
+            - name: GHA_BACKFILL_DAYS
+              value: '30'
+            - name: GHA_LOOKBACK_MINUTES
+              value: '180'
+            - name: GHA_REPO_REFRESH_SECONDS
+              value: '3600'
+            - name: GHA_MAX_OPEN_RUN_REFRESH
+              value: '200'
+            - name: GHA_JOBS_FILTER
+              value: all
+            - name: GHA_SYNC_SCHEDULES
+              value: 'true'
+            - name: GHA_SCHEDULE_REFRESH_SECONDS
+              value: '21600'
+            - name: GHA_LISTEN_HOST
+              value: 0.0.0.0
+            - name: GHA_LISTEN_PORT
+              value: '9619'
+            - name: GHA_LOG_LEVEL
+              value: info
+            - name: GHA_LOG_FORMAT
+              value: json
+          livenessProbe:
+            failureThreshold: 3
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            failureThreshold: 180
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          resources:
+            limits:
+              cpu: 500m
+              memory: 256Mi
+            requests:
+              cpu: 50m
+              memory: 96Mi
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi

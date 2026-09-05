@@ -1,0 +1,55 @@
+apiVersion: v2
+name: github-actions-ingester
+description: |
+  Ingests GitHub Actions workflow runs and jobs into PostgreSQL and exposes
+  the ingester's own health as Prometheus metrics.
+
+    - Long-lived analytics in SQL: success rate, minutes consumed (real and
+      billed), queue wait, runs by trigger, per-workflow and per-repository,
+      over any retention you choose. Grafana reads it with the PostgreSQL
+      datasource; the community dashboard 24157 "GitHub Actions insights"
+      works unchanged through the compatibility views.
+    - Liveness of scheduled workflows: one metric per cron workflow with its
+      last run and expected interval, so a schedule that silently stopped
+      firing becomes an alert.
+    - Least-privilege GitHub access: a GitHub App with Actions:read and
+      Metadata:read (Contents:read only for schedule discovery), created by
+      you inside your own organization via the App Manifest flow, or a PAT.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - github
+  - github-actions
+  - ci
+  - postgresql
+  - prometheus
+  - grafana
+  - observability
+  - monitoring
+home: https://github.com/danielgines/github-actions-ingester
+sources:
+  - https://github.com/danielgines/github-actions-ingester
+maintainers:
+  - name: Daniel Gines
+    url: https://github.com/danielgines
+
+# ArtifactHub-specific annotations, kept inline so Chart.yaml stays the
+# single source of truth. `artifacthub.io/images` is kept in sync with
+# Chart.version by scripts/sync-version.py.
+annotations:
+  artifacthub.io/category: monitoring-logging
+  artifacthub.io/license: MIT
+  artifacthub.io/links: |
+    - name: source
+      url: https://github.com/danielgines/github-actions-ingester
+    - name: container image (GHCR)
+      url: https://github.com/danielgines/github-actions-ingester/pkgs/container/github-actions-ingester
+    - name: changelog
+      url: https://github.com/danielgines/github-actions-ingester/blob/main/CHANGELOG.md
+  artifacthub.io/images: |
+    - name: github-actions-ingester
+      image: ghcr.io/danielgines/github-actions-ingester:0.1.0
+  artifacthub.io/changes: |
+    - kind: added
+      description: Initial release — GitHub App / PAT auth, incremental ingestion of runs and jobs into PostgreSQL with self-managed schema migrations, dashboard 24157 compatibility views, scheduled-workflow liveness metrics, Helm chart with NetworkPolicy, PDB, compliance HPA, ServiceMonitor and PrometheusRule.

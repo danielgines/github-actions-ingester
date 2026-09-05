@@ -1,0 +1,31 @@
+{{ .Chart.Name }} {{ .Chart.AppVersion }} installed.
+
+On start the ingester bootstraps its schema ({{ .Values.database.schema }}) and
+backfills {{ .Values.config.backfillDays }} days of runs; /readyz turns 200 after the first cycle.
+
+  • Metrics + health:
+      kubectl --namespace {{ .Release.Namespace }} port-forward \
+        svc/{{ include "github-actions-ingester.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+      curl http://localhost:{{ .Values.service.port }}/metrics
+      curl http://localhost:{{ .Values.service.port }}/readyz
+
+  • Progress:
+      kubectl --namespace {{ .Release.Namespace }} logs deploy/{{ include "github-actions-ingester.fullname" . }} -f
+
+  • Grafana: add a PostgreSQL datasource pointing at the same database
+    (a read-only role is enough) and import dashboard 24157 or
+    examples/grafana-dashboard.json.
+{{- if .Values.serviceMonitor.enabled }}
+
+  • ServiceMonitor: enabled (interval={{ .Values.serviceMonitor.interval }}).
+{{- else }}
+
+  • ServiceMonitor: disabled — the pod carries prometheus.io/* annotations.
+{{- end }}
+{{- if not .Values.prometheusRule.enabled }}
+
+  • Alerts: set prometheusRule.enabled=true for ingester health and
+    scheduled-workflow liveness rules.
+{{- end }}
+
+Configuration reference: https://github.com/danielgines/github-actions-ingester
