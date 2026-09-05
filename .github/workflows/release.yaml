@@ -132,7 +132,7 @@ jobs:
     needs: [resolve]
     if: needs.resolve.outputs.should_run == 'true'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.ref }}
       - name: Validate version sources match the resolved version
@@ -169,7 +169,7 @@ jobs:
     outputs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.ref }}
       - uses: docker/setup-qemu-action@v4
@@ -253,7 +253,7 @@ jobs:
     needs: [resolve, version-gate, ghcr]
     if: needs.resolve.outputs.should_run == 'true'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.ref }}
       - uses: azure/setup-helm@v4
@@ -301,7 +301,7 @@ jobs:
       contents: read
       id-token: write # OIDC token exchanged with PyPI; also signs the attestations
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.ref }}
       - uses: astral-sh/setup-uv@v7
@@ -344,7 +344,7 @@ jobs:
     needs: [resolve, ghcr, helm-chart, pypi]
     if: needs.resolve.outputs.should_run == 'true' && github.event_name != 'push'
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.ref }}
           fetch-depth: 0
@@ -382,7 +382,7 @@ jobs:
       needs.pypi.result == 'success' &&
       (needs.tag.result == 'success' || needs.tag.result == 'skipped')
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ needs.resolve.outputs.tag }}
           fetch-depth: 0
