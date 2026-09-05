@@ -255,7 +255,9 @@ def test_grant_read_access_lets_a_role_read_views_and_future_tables(
             assert reader.execute("SELECT count(*) FROM workflow_jobs").fetchone()[0] == 0
             assert reader.execute("SELECT count(*) FROM later_migration").fetchone()[0] == 0
             with pytest.raises(psycopg.errors.InsufficientPrivilege):
-                reader.execute("INSERT INTO repositories (id, owner, name, full_name) VALUES (1,'a','b','a/b')")
+                reader.execute(
+                    "INSERT INTO repositories (id, owner, name, full_name) VALUES (1,'a','b','a/b')"
+                )
     finally:
         with psycopg.connect(database_url, autocommit=True) as admin:
             admin.execute(f"DROP OWNED BY {role}")
