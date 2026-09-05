@@ -200,7 +200,44 @@ class Store:
                 )
                 granted.append(role)
         logger.info("store.read_access_granted", roles=granted, schema=self._schema)
+        self._set_database_search_path()
         return granted
+
+    def _set_database_search_path(self) -> None:
+        """Make the schema resolve by bare name for every session on the database.
+
+        The ingester sets ``search_path`` on its own connections, and a role
+        named like the schema gets it for free (``"$user"`` is first in the
+        default path), which is why the Compose example works without this.
+        A read role with a different name (``grafana`` reading schema
+        ``gha``) resolves ``minion_workflow_runs`` to nothing, and the
+        Grafana PostgreSQL datasource has no search_path setting.
+
+        ``ALTER DATABASE ... SET`` needs the database owner. When the ingester
+        is not the owner this logs and moves on: the grants above still hold,
+        and the operator can run the statement once by hand.
+        """
+        conn = self.connect()
+        try:
+            with conn.transaction(), conn.cursor() as cur:
+                cur.execute("SELECT current_database() AS db")
+                row = cur.fetchone()
+                database = row["db"] if row else ""
+                cur.execute(
+                    sql.SQL("ALTER DATABASE {} SET search_path TO {}, public").format(
+                        sql.Identifier(database), sql.Identifier(self._schema)
+                    )
+                )
+        except psycopg.errors.InsufficientPrivilege:
+            conn.rollback()
+            logger.warning(
+                "store.search_path_not_set",
+                schema=self._schema,
+                hint="ingester role does not own the database; run "
+                "ALTER DATABASE <db> SET search_path TO <schema>, public as the owner",
+            )
+            return
+        logger.info("store.search_path_set", schema=self._schema)
 
     def schema_version(self) -> int | None:
         """Highest applied migration, or None when the schema was never bootstrapped."""

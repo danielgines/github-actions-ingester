@@ -193,6 +193,9 @@ tolerations: []
 affinity: {}
 podLabels: {}
 podAnnotations: {}
+# Annotations on the Deployment itself, e.g. `reloader.stakater.com/auto: "true"`
+# so a rotated credential in the referenced Secrets restarts the pod.
+deploymentAnnotations: {}
 priorityClassName: ""
 
 # SIGTERM ends the cycle at the next safe point; upserts are transactional

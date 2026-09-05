@@ -4,6 +4,19 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.1] — 2026-09-05
+
+### Added
+- Chart: `deploymentAnnotations`, for a Reloader annotation on the
+  Deployment.
+
+### Fixed
+- A read role with a name different from the schema could not resolve the
+  views by bare name, and the Grafana PostgreSQL datasource has no
+  search_path setting. After granting read access the ingester now sets
+  the database's default `search_path` to the schema (needs the ingester
+  role to own the database; skipped with a warning otherwise).
+
 ## [0.2.0] — 2026-09-05
 
 ### Added

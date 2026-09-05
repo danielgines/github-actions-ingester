@@ -203,6 +203,7 @@ Deployment so the HPA owns the field and GitOps tools do not fight it.
 | `probes.liveness` / `probes.readiness` / `probes.startup` | `/healthz` / `/readyz` / `{}` | |
 | `nodeSelector` / `tolerations` / `affinity` | `{}` / `[]` / `{}` | |
 | `podLabels` / `podAnnotations` | `{}` | |
+| `deploymentAnnotations` | `{}` | e.g. `reloader.stakater.com/auto: "true"` |
 | `priorityClassName` | `""` | |
 | `terminationGracePeriodSeconds` | `30` | |
 | `serviceAccount.create` / `name` / `annotations` | `true` / `""` / `{}` | |

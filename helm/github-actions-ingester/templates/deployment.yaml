@@ -15,6 +15,10 @@ metadata:
   name: {{ include "github-actions-ingester.fullname" . }}
   labels:
     {{- include "github-actions-ingester.labels" . | nindent 4 }}
+  {{- with .Values.deploymentAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   {{- if not .Values.autoscaling.enabled }}
   # With the HPA enabled `replicas` is omitted so the HPA owns the field

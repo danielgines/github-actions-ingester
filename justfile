@@ -252,7 +252,8 @@ release VERSION:
     fi
     sed -i 's/^version = "[^"]*"/version = "{{VERSION}}"/' pyproject.toml
     python3 scripts/sync-version.py || true   # exits 1 when it rewrites — that's fine
-    git add pyproject.toml src/github_actions_ingester/__init__.py helm/github-actions-ingester/Chart.yaml CHANGELOG.md
+    uv lock --quiet                            # the lockfile records the project version too
+    git add pyproject.toml uv.lock src/github_actions_ingester/__init__.py helm/github-actions-ingester/Chart.yaml CHANGELOG.md
     git commit -m "chore(release): v{{VERSION}}"
     echo
     echo "✓ release commit created locally — push to fire CI → release"

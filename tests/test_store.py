@@ -250,7 +250,10 @@ def test_grant_read_access_lets_a_role_read_views_and_future_tables(
         schema = migrated_store.schema
         reader_url = re.sub(r"//[^@]*@", f"//{role}:reader@", _with_userinfo(database_url))
         with psycopg.connect(reader_url, autocommit=True) as reader:
-            reader.execute(f"SET search_path TO {schema}")
+            # No SET search_path on purpose: Grafana cannot send one, so the
+            # database-level default the ingester sets must resolve the views.
+            path = reader.execute("SHOW search_path").fetchone()[0]
+            assert path.split(",")[0].strip().strip('"') == schema
             assert reader.execute("SELECT count(*) FROM minion_workflow_runs").fetchone()[0] == 0
             assert reader.execute("SELECT count(*) FROM workflow_jobs").fetchone()[0] == 0
             assert reader.execute("SELECT count(*) FROM later_migration").fetchone()[0] == 0
@@ -262,6 +265,8 @@ def test_grant_read_access_lets_a_role_read_views_and_future_tables(
         with psycopg.connect(database_url, autocommit=True) as admin:
             admin.execute(f"DROP OWNED BY {role}")
             admin.execute(f"DROP ROLE {role}")
+            db = admin.execute("SELECT current_database()").fetchone()[0]
+            admin.execute(f'ALTER DATABASE "{db}" RESET search_path')
 
 
 def test_grant_read_access_requires_an_existing_role(migrated_store: Store) -> None:

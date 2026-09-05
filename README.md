@@ -99,7 +99,11 @@ table and view after each migration run, plus a default privilege so
 tables added by later migrations are readable too. Point Grafana at the
 database with one of those roles and it never needs the ingester's
 credentials. The roles themselves are created by whoever manages the
-database (the ingester never runs `CREATE ROLE`).
+database (the ingester never runs `CREATE ROLE`). In the same step the
+ingester sets the database's default `search_path` to the schema, so a
+Grafana datasource (which cannot send one) resolves the views by bare
+name; that statement needs the ingester's role to own the database, and
+is skipped with a warning otherwise.
 
 ### Tables and views
 
