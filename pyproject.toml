@@ -49,7 +49,9 @@ dev = [
     "pre-commit>=3.7",
     "types-PyYAML>=6.0",
     "types-croniter>=3.0",
-    "pgserver>=0.1.4",
+    # Embedded PostgreSQL for local tests; ships wheels for 3.11/3.12 only.
+    # CI uses a service container and GHA_TEST_DATABASE_URL instead.
+    "pgserver>=0.1.4; python_version < '3.13'",
 ]
 
 [build-system]

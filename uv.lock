@@ -450,7 +450,7 @@ dependencies = [
 [package.optional-dependencies]
 dev = [
     { name = "mypy" },
-    { name = "pgserver" },
+    { name = "pgserver", marker = "python_full_version < '3.13'" },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -465,7 +465,7 @@ requires-dist = [
     { name = "croniter", specifier = ">=3.0" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "pgserver", marker = "extra == 'dev'", specifier = ">=0.1.4" },
+    { name = "pgserver", marker = "python_full_version < '3.13' and extra == 'dev'", specifier = ">=0.1.4" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=3.7" },
     { name = "prometheus-client", specifier = ">=0.20" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },

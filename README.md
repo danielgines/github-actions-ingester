@@ -394,9 +394,10 @@ just compose-up       # local stack: PostgreSQL + ingester + Grafana
 just                  # all recipes
 ```
 
-Tests need no external database: `pgserver` starts a throwaway PostgreSQL
-in a temporary directory. Set `GHA_TEST_DATABASE_URL` to point them at an
-existing server instead. GitHub traffic is mocked with `pytest-httpx`; the
+Tests need no external database on Python 3.11/3.12: `pgserver` starts a
+throwaway PostgreSQL in a temporary directory. On 3.13 (no `pgserver`
+wheel yet) or to use an existing server, set `GHA_TEST_DATABASE_URL`;
+integration tests are skipped when neither is available. GitHub traffic is mocked with `pytest-httpx`; the
 CLI tests run `migrate`, `check`, `run --once` and the service mode
 end-to-end against the mock API.
 
