@@ -4,6 +4,9 @@
 image:
   repository: ghcr.io/danielgines/github-actions-ingester
   tag: ""  # defaults to .Chart.appVersion
+  # Pin by digest (multi-arch index) for clusters that require it, e.g.
+  # a Kyverno require-image-digest policy. Rendered as `repo:tag@digest`.
+  digest: ""  # e.g. "sha256:..."
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -99,6 +102,13 @@ config:
 
 # Extra environment variables appended verbatim (raw EnvVar objects).
 extraEnv: []
+
+# Extra volumes and mounts, appended to the container. Typical use: a CA
+# bundle for `sslmode=verify-full` against an operator-managed PostgreSQL
+# (CloudNativePG publishes its CA as a Secret), then point at it with
+# `sslrootcert=/etc/postgres-ca/ca.crt` in the database URL.
+extraVolumes: []
+extraVolumeMounts: []
 
 service:
   type: ClusterIP

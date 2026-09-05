@@ -7,6 +7,10 @@ adheres to [Semantic Versioning](https://semver.org/).
 ## [0.2.0] — 2026-09-05
 
 ### Added
+- Chart: `image.digest` renders the image as `repo:tag@digest` for
+  clusters that require digest pins.
+- Chart: `extraVolumes` and `extraVolumeMounts`, so a CA bundle can be
+  mounted for `sslmode=verify-full`.
 - `GHA_DATABASE_READ_ROLES` (chart: `database.readRoles`): existing roles
   that get read-only access to the schema after every migration run,
   USAGE plus SELECT on every table and view and a default privilege for

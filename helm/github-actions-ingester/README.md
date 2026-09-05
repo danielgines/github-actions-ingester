@@ -154,6 +154,7 @@ Deployment so the HPA owns the field and GitOps tools do not fight it.
 |---|---|---|
 | `image.repository` | `ghcr.io/danielgines/github-actions-ingester` | |
 | `image.tag` | `""` | defaults to `.Chart.appVersion` |
+| `image.digest` | `""` | pin by digest, rendered as `repo:tag@digest` |
 | `image.pullPolicy` | `IfNotPresent` | |
 | `imagePullSecrets` | `[]` | |
 | `replicaCount` | `1` | bounded to 1 |
@@ -184,6 +185,7 @@ Deployment so the HPA owns the field and GitOps tools do not fight it.
 | `config.scheduleRefreshSeconds` | `21600` | |
 | `config.logLevel` | `info` | |
 | `config.logFormat` | `json` | |
+| `extraVolumes` / `extraVolumeMounts` | `[]` | e.g. a CA Secret for `sslmode=verify-full` |
 | `extraEnv` | `[]` | raw EnvVar objects |
 | `service.type` / `service.port` | `ClusterIP` / `9619` | |
 | `serviceMonitor.enabled` | `false` | Prometheus Operator |
