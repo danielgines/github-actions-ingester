@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 
+import psycopg
 import pytest
 
 from github_actions_ingester.store import Migration, Store, load_migrations
@@ -229,3 +231,43 @@ def _run_row(store: Store, run_id: int) -> dict[str, object]:
             return dict(cur.fetchone() or {})
     finally:
         conn.rollback()
+
+
+def test_grant_read_access_lets_a_role_read_views_and_future_tables(
+    database_url: str, migrated_store: Store
+) -> None:
+    role = "r_" + migrated_store.schema
+    with psycopg.connect(database_url, autocommit=True) as admin:
+        admin.execute(f"CREATE ROLE {role} LOGIN PASSWORD 'reader'")
+    try:
+        assert migrated_store.grant_read_access([role]) == [role]
+        # Idempotent: a second start must not fail on grants already given.
+        assert migrated_store.grant_read_access([role]) == [role]
+        # A table created by the ingester AFTER the grant is covered too
+        # (default privileges), which is what a later migration looks like.
+        with migrated_store.connect().transaction(), migrated_store.connect().cursor() as cur:
+            cur.execute("CREATE TABLE later_migration (id INT)")
+        schema = migrated_store.schema
+        reader_url = re.sub(r"//[^@]*@", f"//{role}:reader@", _with_userinfo(database_url))
+        with psycopg.connect(reader_url, autocommit=True) as reader:
+            reader.execute(f"SET search_path TO {schema}")
+            assert reader.execute("SELECT count(*) FROM minion_workflow_runs").fetchone()[0] == 0
+            assert reader.execute("SELECT count(*) FROM workflow_jobs").fetchone()[0] == 0
+            assert reader.execute("SELECT count(*) FROM later_migration").fetchone()[0] == 0
+            with pytest.raises(psycopg.errors.InsufficientPrivilege):
+                reader.execute("INSERT INTO repositories (id, owner, name, full_name) VALUES (1,'a','b','a/b')")
+    finally:
+        with psycopg.connect(database_url, autocommit=True) as admin:
+            admin.execute(f"DROP OWNED BY {role}")
+            admin.execute(f"DROP ROLE {role}")
+
+
+def test_grant_read_access_requires_an_existing_role(migrated_store: Store) -> None:
+    with pytest.raises(psycopg.errors.UndefinedObject):
+        migrated_store.grant_read_access(["no_such_role_" + migrated_store.schema])
+    assert migrated_store.grant_read_access([]) == []
+
+
+def _with_userinfo(url: str) -> str:
+    """pgserver URIs carry no user:pass; give the substitution something to replace."""
+    return url if "@" in url else url.replace("://", "://x:y@", 1)

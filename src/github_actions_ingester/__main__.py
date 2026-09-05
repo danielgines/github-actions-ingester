@@ -152,6 +152,7 @@ def cmd_run(once: bool) -> int:
         while not stop.is_set():
             try:
                 store.migrate()
+                store.grant_read_access(settings.read_role_list())
                 break
             except Exception as exc:
                 log.error("store.bootstrap_failed", error=str(exc), retry_in=15)
@@ -200,12 +201,15 @@ def cmd_migrate() -> int:
     )
     try:
         report = store.migrate()
+        granted = store.grant_read_access(settings.read_role_list())
     finally:
         store.close()
     print(
         f"schema {settings.database_schema}: version {report.current_version}, "
         f"applied now: {report.applied or 'nothing'}"
     )
+    if granted:
+        print(f"read access granted to: {', '.join(granted)}")
     return 0
 
 

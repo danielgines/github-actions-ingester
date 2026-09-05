@@ -104,3 +104,11 @@ def test_normalizations() -> None:
     assert s.log_format == "console"
     assert s.jobs_filter == "latest"
     assert s.github_api_base == "https://ghe.example.com/api/v3"
+
+
+def test_read_roles_parsed_and_validated() -> None:
+    s = load_settings(github_token="x", database_read_roles=" grafana, reporting_ro ", **BASE)
+    assert s.read_role_list() == ["grafana", "reporting_ro"]
+    assert load_settings(github_token="x", **BASE).read_role_list() == []
+    with pytest.raises(ValidationError, match="plain identifier"):
+        load_settings(github_token="x", database_read_roles="grafana; drop", **BASE)

@@ -172,6 +172,36 @@ class Store:
             logger.info("store.migrations_up_to_date", version=current)
         return MigrationReport(applied_now, current, len(pending))
 
+    def grant_read_access(self, roles: Sequence[str]) -> list[str]:
+        """Give ``roles`` read-only access to the schema.
+
+        USAGE on the schema, SELECT on every table and view in it, and a
+        default privilege so tables created by later migrations are
+        readable too. Idempotent; run after every ``migrate``. The roles
+        must exist already: creating roles is the operator's job, and a
+        missing one raises like any other bootstrap error.
+        """
+        granted: list[str] = []
+        if not roles:
+            return granted
+        conn = self.connect()
+        schema = sql.Identifier(self._schema)
+        with conn.transaction(), conn.cursor() as cur:
+            for role in roles:
+                ident = sql.Identifier(role)
+                cur.execute(sql.SQL("GRANT USAGE ON SCHEMA {} TO {}").format(schema, ident))
+                cur.execute(
+                    sql.SQL("GRANT SELECT ON ALL TABLES IN SCHEMA {} TO {}").format(schema, ident)
+                )
+                cur.execute(
+                    sql.SQL(
+                        "ALTER DEFAULT PRIVILEGES IN SCHEMA {} GRANT SELECT ON TABLES TO {}"
+                    ).format(schema, ident)
+                )
+                granted.append(role)
+        logger.info("store.read_access_granted", roles=granted, schema=self._schema)
+        return granted
+
     def schema_version(self) -> int | None:
         """Highest applied migration, or None when the schema was never bootstrapped."""
         conn = self.connect()

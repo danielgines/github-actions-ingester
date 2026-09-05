@@ -61,6 +61,11 @@ database:
   url: ""
   schema: "gha"                # every table lives here; created if missing
   connectTimeoutSeconds: 10
+  # Roles that get read-only access to the schema after every migration
+  # run (USAGE + SELECT on every table and view, also on tables created by
+  # later migrations). Typically the role Grafana connects with. The roles
+  # must already exist; the ingester never creates roles.
+  readRoles: []
 
 # Ingestion behaviour — passed through as GHA_* env vars. Bounds mirror
 # src/github_actions_ingester/config.py.

@@ -27,6 +27,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _REPO_RE = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _OWNER_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+_ROLE_RE = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
 
 def _split_csv(value: str) -> list[str]:
@@ -112,6 +113,14 @@ class Settings(BaseSettings):
         description="Schema that holds every ingester table. Created on first start if missing.",
     )
     database_connect_timeout_seconds: int = Field(default=10, ge=1)
+    database_read_roles: str = Field(
+        default="",
+        description="Comma-separated PostgreSQL roles that get read-only access "
+        "to the schema after every migration run: USAGE on the schema, "
+        "SELECT on every table and view, and the same SELECT on tables the "
+        "ingester creates later. Meant for the role Grafana connects with. "
+        "The roles must already exist; the ingester never creates roles.",
+    )
 
     # --- Collection ---
     poll_interval_seconds: int = Field(
@@ -250,6 +259,9 @@ class Settings(BaseSettings):
         for repo in self.repo_list():
             if not _REPO_RE.match(repo):
                 raise ValueError(f"repos entry {repo!r} must look like owner/name")
+        for role in self.read_role_list():
+            if not _ROLE_RE.match(role):
+                raise ValueError(f"database_read_roles entry {role!r} is not a plain identifier")
         if not self.org_list() and not self.repo_list():
             raise ValueError("nothing to ingest: set GHA_ORGS and/or GHA_REPOS")
         return self
@@ -266,6 +278,9 @@ class Settings(BaseSettings):
 
     def exclude_patterns(self) -> list[str]:
         return _split_csv(self.exclude_repos)
+
+    def read_role_list(self) -> list[str]:
+        return _split_csv(self.database_read_roles)
 
     def is_excluded(self, full_name: str) -> bool:
         name = full_name.lower()

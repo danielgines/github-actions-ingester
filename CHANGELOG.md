@@ -4,6 +4,21 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — 2026-09-05
+
+### Added
+- `GHA_DATABASE_READ_ROLES` (chart: `database.readRoles`): existing roles
+  that get read-only access to the schema after every migration run,
+  USAGE plus SELECT on every table and view and a default privilege for
+  tables added later. Lets Grafana read through its own role instead of
+  the ingester's credentials.
+
+### Fixed
+- `examples/github-app/create-app.html` filled the `manifest` field only
+  on submit; a viewer that posts before the listener runs sent an empty
+  manifest and GitHub answered `"url" wasn't supplied`. The fields are
+  now filled on load and on every edit.
+
 ## [0.1.0] — 2026-09-05
 
 First release.

@@ -162,6 +162,7 @@ Deployment so the HPA owns the field and GitOps tools do not fight it.
 | `auth.token` | `""` | inline PAT (wrapped in a Secret) |
 | `auth.app.id` / `auth.app.privateKey` / `auth.app.installationId` | `""` | inline GitHub App credential |
 | `database.existingSecret` | `""` | Secret holding the connection URL |
+| `database.readRoles` | `[]` | Existing roles granted read-only access to the schema on every start (the role Grafana uses) |
 | `database.existingSecretKey` | `GHA_DATABASE_URL` | key inside that Secret |
 | `database.url` | `""` | inline URL (wrapped in a Secret) |
 | `database.schema` | `gha` | schema holding every table |

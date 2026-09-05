@@ -87,17 +87,18 @@
     if (fields.redirect.value.trim()) m.redirect_url = fields.redirect.value.trim();
     return m;
   }
+  // The hidden fields are filled on load and on every keystroke, not only
+  // on submit: a viewer that fires the submission before listeners run
+  // would otherwise post an empty manifest ("url wasn't supplied").
   function render() {
     const org = fields.org.value.trim();
     form.action = org
       ? `https://github.com/organizations/${encodeURIComponent(org)}/settings/apps/new`
       : "https://github.com/settings/apps/new";
-    document.getElementById("preview").textContent = JSON.stringify(manifest(), null, 2) + "\n\nPOST " + form.action;
-  }
-  form.addEventListener("submit", () => {
     document.getElementById("manifest").value = JSON.stringify(manifest());
     document.getElementById("state").value = Math.random().toString(36).slice(2);
-  });
+    document.getElementById("preview").textContent = JSON.stringify(manifest(), null, 2) + "\n\nPOST " + form.action;
+  }
   Object.values(fields).forEach((f) => f.addEventListener("input", render));
   render();
 </script>

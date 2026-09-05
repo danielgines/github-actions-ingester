@@ -90,6 +90,10 @@ spec:
               value: {{ .Values.database.schema | quote }}
             - name: GHA_DATABASE_CONNECT_TIMEOUT_SECONDS
               value: {{ .Values.database.connectTimeoutSeconds | quote }}
+            {{- with .Values.database.readRoles }}
+            - name: GHA_DATABASE_READ_ROLES
+              value: {{ join "," . | quote }}
+            {{- end }}
             - name: GHA_ORGS
               value: {{ .Values.config.orgs | quote }}
             - name: GHA_REPOS

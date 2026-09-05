@@ -92,6 +92,15 @@ nothing. `github-actions-ingester migrate` does the same and exits, for
 init containers or pipelines that want the schema in place before the
 service starts.
 
+The ingester owns the schema and writes to it; dashboards should read
+through a role of their own. `GHA_DATABASE_READ_ROLES` names existing
+roles (comma-separated) that get USAGE on the schema and SELECT on every
+table and view after each migration run, plus a default privilege so
+tables added by later migrations are readable too. Point Grafana at the
+database with one of those roles and it never needs the ingester's
+credentials. The roles themselves are created by whoever manages the
+database (the ingester never runs `CREATE ROLE`).
+
 ### Tables and views
 
 | Object | Content |
@@ -217,6 +226,7 @@ directory is read too; see [`.env.example`](.env.example)).
 | `GHA_DATABASE_URL` | _required_ | libpq URL, e.g. `postgresql://user:pass@host:5432/db?sslmode=require` |
 | `GHA_DATABASE_SCHEMA` | `gha` | Schema holding every table; created on first start |
 | `GHA_DATABASE_CONNECT_TIMEOUT_SECONDS` | `10` | Connection timeout |
+| `GHA_DATABASE_READ_ROLES` | `""` | Comma-separated existing roles granted read-only access to the schema on every start |
 | `GHA_POLL_INTERVAL_SECONDS` | `300` | Seconds between cycles (min 30) |
 | `GHA_BACKFILL_DAYS` | `30` | How far back the first cycle of a repository goes (1..3660) |
 | `GHA_LOOKBACK_MINUTES` | `180` | Window before the cursor re-listed every cycle to catch status changes |
