@@ -1,6 +1,6 @@
 [project]
 name = "github-actions-ingester"
-version = "0.2.0"
+version = "0.2.1"
 description = "Standalone GitHub Actions ingester — pulls workflows, runs and jobs from the GitHub API into PostgreSQL for Grafana dashboards, FinOps and alerting. Prometheus /metrics for ingester health and scheduled-workflow liveness."
 readme = "README.md"
 requires-python = ">=3.11"
