@@ -45,9 +45,10 @@ test-cov:
       --cov-report=html
     @echo "✓ HTML coverage at htmlcov/index.html"
 
-# Lint Python (ruff check)
+# Lint Python (ruff check + format check, the same two steps CI runs)
 lint:
     uv run ruff check src tests
+    uv run ruff format --check src tests
 
 # Format Python (ruff format) and auto-fix lint
 format:
