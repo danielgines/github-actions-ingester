@@ -21,7 +21,7 @@ RUN uv build --wheel --out-dir /build/dist
 
 # ---------------------------------------------------------------------------
 
-FROM python:3.13-slim-trixie AS runtime
+FROM python:3.14-slim-trixie AS runtime
 
 # OCI labels — identity in registry browsers without pulling the README.
 # GHA_VERSION / GHA_REVISION are set by CI (`--build-arg GHA_VERSION=v0.1.0
