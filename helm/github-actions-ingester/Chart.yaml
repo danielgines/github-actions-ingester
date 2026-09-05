@@ -16,8 +16,8 @@ description: |
       Metadata:read (Contents:read only for schedule discovery), created by
       you inside your own organization via the App Manifest flow, or a PAT.
 type: application
-version: 0.1.0
-appVersion: "0.1.0"
+version: 0.2.0
+appVersion: "0.2.0"
 keywords:
   - github
   - github-actions
@@ -49,7 +49,7 @@ annotations:
       url: https://github.com/danielgines/github-actions-ingester/blob/main/CHANGELOG.md
   artifacthub.io/images: |
     - name: github-actions-ingester
-      image: ghcr.io/danielgines/github-actions-ingester:0.1.0
+      image: ghcr.io/danielgines/github-actions-ingester:0.2.0
   artifacthub.io/changes: |
     - kind: added
       description: Initial release — GitHub App / PAT auth, incremental ingestion of runs and jobs into PostgreSQL with self-managed schema migrations, dashboard 24157 compatibility views, scheduled-workflow liveness metrics, Helm chart with NetworkPolicy, PDB, compliance HPA, ServiceMonitor and PrometheusRule.

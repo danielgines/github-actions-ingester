@@ -6,4 +6,4 @@ its own, and exposes Prometheus metrics about the ingestion itself and
 about the liveness of scheduled workflows.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
