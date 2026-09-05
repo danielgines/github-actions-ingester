@@ -26,7 +26,7 @@ from . import __version__
 from .app_manifest import convert_code, manifest_form_url, manifest_json, write_private_key
 from .collector import Collector
 from .config import Settings, load_settings
-from .github import AppAuth, GitHubAPIError, GitHubClient, TokenAuth
+from .github import AppAuth, GitHubAPIError, GitHubClient, RateLimitState, TokenAuth
 from .metrics import Metrics
 from .ratelimit import RateLimiter
 from .server import MetricsServer
@@ -77,6 +77,16 @@ def _build_client(settings: Settings, metrics: Metrics | None = None) -> GitHubC
         if metrics is not None:
             metrics.github_requests_total.labels(status=str(status)).inc()
 
+    # Refresh the budget gauges on every response, not once per repository:
+    # a busy repository keeps the collector inside one ingest_repository()
+    # call for many minutes, and an alert on the remaining budget must not
+    # wait for it to finish.
+    def on_rate_limit(rl: RateLimitState) -> None:
+        if metrics is not None:
+            metrics.github_rate_limit_remaining.set(rl.remaining)
+            metrics.github_rate_limit_limit.set(rl.limit)
+            metrics.github_rate_limit_reset_timestamp_seconds.set(rl.reset_at)
+
     return GitHubClient(
         auth=auth,
         base_url=settings.github_api_base,
@@ -85,6 +95,7 @@ def _build_client(settings: Settings, metrics: Metrics | None = None) -> GitHubC
         min_remaining=settings.api_min_remaining,
         max_retries=settings.api_max_retries,
         on_request=on_request,
+        on_rate_limit=on_rate_limit,
     )
 
 

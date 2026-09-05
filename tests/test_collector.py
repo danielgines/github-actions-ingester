@@ -195,6 +195,37 @@ def test_first_cycle_backfills_everything(migrated_store: Store, clock: list[dat
     assert _gauge(m, "gha_scheduled_workflow_last_conclusion", **labels, conclusion="failure") == 0
 
 
+def test_jobs_phase_reports_progress_and_moves_counters(
+    migrated_store: Store, clock: list[datetime], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A long jobs phase logs every N runs and increments the counter per run,
+    so a stalled backfill is visible before ingest_repository() returns."""
+    import github_actions_ingester.collector as mod
+
+    gh = FakeGitHub()
+    gh.runs[1] = [run(300 + i, 1, 10) for i in range(5)]
+    for i in range(5):
+        gh.jobs[300 + i] = [job(3000 + i, 300 + i, 1)]
+    monkeypatch.setattr(mod, "_JOBS_PROGRESS_EVERY", 2)
+    events: list[dict[str, Any]] = []
+    seen_counter: list[float | None] = []
+    c, m = make(migrated_store, gh, clock)
+
+    def spy(event: str, **kw: Any) -> None:
+        if event == "jobs.progress":
+            events.append(kw)
+            seen_counter.append(
+                _gauge(m, "gha_ingester_jobs_upserted_total", repository="acme/web")
+            )
+
+    monkeypatch.setattr(mod.logger, "info", spy)
+    c.run_cycle()
+    assert [(e["runs_done"], e["runs_total"]) for e in events] == [(2, 5), (4, 5)]
+    # The counter had already moved when the progress line was written.
+    assert seen_counter == [2.0, 4.0]
+    assert _gauge(m, "gha_ingester_jobs_upserted_total", repository="acme/web") == 5.0
+
+
 def test_second_cycle_is_incremental(migrated_store: Store, clock: list[datetime]) -> None:
     gh = FakeGitHub()
     c, _ = make(migrated_store, gh, clock)

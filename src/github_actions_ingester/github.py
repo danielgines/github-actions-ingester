@@ -338,6 +338,7 @@ class GitHubClient:
         min_remaining: int = 200,
         max_retries: int = 4,
         on_request: Callable[[int], None] | None = None,
+        on_rate_limit: Callable[[RateLimitState], None] | None = None,
         sleep: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.time,
     ) -> None:
@@ -355,6 +356,7 @@ class GitHubClient:
         self._min_remaining = min_remaining
         self._max_retries = max_retries
         self._on_request = on_request
+        self._on_rate_limit = on_rate_limit
         self._sleep = sleep
         self._clock = clock
         self.rate_limit = RateLimitState()
@@ -404,6 +406,8 @@ class GitHubClient:
                 self._sleep(min(2**attempt, 30))
                 continue
             self.rate_limit.update(resp.headers)
+            if self._on_rate_limit is not None:
+                self._on_rate_limit(self.rate_limit)
             if self._on_request is not None:
                 self._on_request(resp.status_code)
             if resp.status_code < 400:

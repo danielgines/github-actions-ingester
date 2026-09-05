@@ -56,6 +56,7 @@ CONCLUSIONS = (
     "stale",
     "startup_failure",
 )
+_JOBS_PROGRESS_EVERY = 250
 _RUN_BATCH = 500
 
 
@@ -198,9 +199,10 @@ class Collector:
 
         written = 0
         for batch in _batched(self._client.list_runs(repo, since, now), _RUN_BATCH):
-            written += self._store.upsert_runs(batch)
-        if written:
-            self._metrics.runs_upserted_total.labels(repository=repo.full_name).inc(written)
+            n = self._store.upsert_runs(batch)
+            written += n
+            if n:
+                self._metrics.runs_upserted_total.labels(repository=repo.full_name).inc(n)
 
         # Open runs that fell out of the window: refresh them individually.
         stale = self._store.open_runs_before(repo.id, since, s.max_open_run_refresh)
@@ -213,8 +215,12 @@ class Collector:
                 raise
             self._store.upsert_runs([run])
 
+        # One request per run: on a first backfill of a busy repository this
+        # loop runs for many minutes, so it reports progress on the way and
+        # moves the counters as it goes instead of once at the end.
         jobs_written = 0
-        for run_id in self._store.runs_needing_jobs(repo.id):
+        pending = self._store.runs_needing_jobs(repo.id)
+        for done, run_id in enumerate(pending, start=1):
             try:
                 jobs = list(self._client.list_jobs(repo, run_id, s.jobs_filter))
             except GitHubAPIError as exc:
@@ -223,9 +229,18 @@ class Collector:
                     self._store.upsert_jobs(run_id, [])
                     continue
                 raise
-            jobs_written += self._store.upsert_jobs(run_id, jobs)
-        if jobs_written:
-            self._metrics.jobs_upserted_total.labels(repository=repo.full_name).inc(jobs_written)
+            n = self._store.upsert_jobs(run_id, jobs)
+            jobs_written += n
+            if n:
+                self._metrics.jobs_upserted_total.labels(repository=repo.full_name).inc(n)
+            if done % _JOBS_PROGRESS_EVERY == 0 and done < len(pending):
+                logger.info(
+                    "jobs.progress",
+                    repo=repo.full_name,
+                    runs_done=done,
+                    runs_total=len(pending),
+                    jobs=jobs_written,
+                )
 
         self._store.set_cursor(repo.id, now, written)
         logger.info(

@@ -330,6 +330,24 @@ def test_on_request_hook_receives_status(httpx_mock: HTTPXMock) -> None:
     assert seen == [404]
 
 
+def test_on_rate_limit_hook_fires_on_every_response(httpx_mock: HTTPXMock) -> None:
+    seen: list[int] = []
+    httpx_mock.add_response(
+        url=f"{API}/a",
+        json={},
+        headers={"X-RateLimit-Limit": "5000", "X-RateLimit-Remaining": "4000"},
+    )
+    httpx_mock.add_response(
+        url=f"{API}/b",
+        json={},
+        headers={"X-RateLimit-Limit": "5000", "X-RateLimit-Remaining": "3999"},
+    )
+    c = _client(on_rate_limit=lambda rl: seen.append(rl.remaining))
+    c.get("/a")
+    c.get("/b")
+    assert seen == [4000, 3999]
+
+
 # -- pagination / listings ---------------------------------------------------------
 
 
