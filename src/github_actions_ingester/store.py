@@ -30,6 +30,7 @@ from psycopg import sql
 from psycopg.rows import dict_row
 
 from .github import Repository, Workflow, WorkflowJob, WorkflowRun
+from .workflow_schedule import WorkflowFacts
 
 logger = structlog.get_logger(__name__)
 
@@ -334,19 +335,48 @@ class Store:
             )
         return len(rows)
 
-    def set_workflow_schedules(
-        self, workflow_id: int, schedules: list[str], interval_seconds: float | None
+    def set_workflow_facts(
+        self, workflow_id: int, facts: WorkflowFacts, interval_seconds: float | None
     ) -> None:
+        """Record what the workflow file declares (crons, triggers, calls)."""
         conn = self.connect()
         with conn.transaction(), conn.cursor() as cur:
             cur.execute(
                 """
                 UPDATE workflows
-                SET schedules = %s, schedule_interval_seconds = %s, schedules_synced_at = now()
+                SET schedules = %s, schedule_interval_seconds = %s,
+                    triggers = %s, reusable_workflows = %s, actions = %s,
+                    schedules_synced_at = now()
                 WHERE id = %s
                 """,
-                (schedules, interval_seconds, workflow_id),
+                (
+                    facts.schedules,
+                    interval_seconds,
+                    facts.triggers,
+                    facts.reusable_workflows,
+                    facts.actions,
+                    workflow_id,
+                ),
             )
+
+    def workflow_facts(self, workflow_id: int) -> dict[str, list[str]]:
+        """The stored file facts of one workflow (used by tests and `check`)."""
+        conn = self.connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT schedules, triggers, reusable_workflows, actions
+                    FROM workflows WHERE id = %s
+                    """,
+                    (workflow_id,),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.rollback()
+        if row is None:
+            raise KeyError(workflow_id)
+        return {k: list(v) for k, v in row.items()}
 
     def workflows_needing_schedule_sync(self, older_than: datetime) -> list[dict[str, Any]]:
         conn = self.connect()

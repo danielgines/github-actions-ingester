@@ -57,7 +57,11 @@ minutes):
    are stored, together with the *expected interval*: the longest gap
    between two consecutive fires with all crons merged (for
    `0 9 * * 1-5` that is 72 h, Friday to Monday, so the alert stays quiet
-   over the weekend).
+   over the weekend). The same read records the trigger events under
+   `on`, the reusable workflows the file calls (`jobs.*.uses`) and the
+   actions it runs (`steps[].uses`), so "which workflows call
+   `_deploy.yml`?" and "who still pins `actions/checkout@v3`?" are a
+   query away.
 2. **Runs**: for each repository, list the runs created since the
    repository's cursor minus `GHA_LOOKBACK_MINUTES`. The first cycle of a
    repository goes back `GHA_BACKFILL_DAYS`. Windows that would exceed
@@ -110,7 +114,7 @@ is skipped with a warning otherwise.
 | Object | Content |
 |---|---|
 | `repositories` | id, owner, name, default branch, archived, first/last seen |
-| `workflows` | one row per workflow file: name, path, state, `schedules[]`, `schedule_interval_seconds` |
+| `workflows` | one row per workflow file: name, path, state, `schedules[]`, `schedule_interval_seconds`, `triggers[]`, `reusable_workflows[]`, `actions[]` |
 | `workflow_runs` | one row per run: event, status, conclusion, branch, actor, `created_at`, `run_started_at`, `completed_at`, attempt |
 | `workflow_jobs` | one row per job: runner name / group / labels, `started_at`, `completed_at`, steps |
 | `ingest_cursors` | per-repository resume point |
@@ -237,7 +241,7 @@ directory is read too; see [`.env.example`](.env.example)).
 | `GHA_REPO_REFRESH_SECONDS` | `3600` | Repository / workflow inventory refresh (min 60) |
 | `GHA_MAX_OPEN_RUN_REFRESH` | `200` | Per-cycle cap on `GET /runs/{id}` for stale open runs; 0 disables |
 | `GHA_JOBS_FILTER` | `all` | `all` = jobs from every attempt (matches billing); `latest` = last attempt only |
-| `GHA_SYNC_SCHEDULES` | `true` | Read workflow files for `on.schedule` (needs Contents: read) |
+| `GHA_SYNC_SCHEDULES` | `true` | Read workflow files for `on.schedule`, triggers and `uses:` (needs Contents: read) |
 | `GHA_SCHEDULE_REFRESH_SECONDS` | `21600` | How often workflow files are re-read (min 300) |
 | `GHA_API_RATE_LIMIT_RPS` | `5.0` | Client-side pacing toward the GitHub API |
 | `GHA_API_MIN_REMAINING` | `200` | Pause until reset when the primary budget drops under this |

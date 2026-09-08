@@ -4,7 +4,12 @@ import calendar
 
 import pytest
 
-from github_actions_ingester.workflow_schedule import expected_interval_seconds, parse_schedules
+from github_actions_ingester.workflow_schedule import (
+    WorkflowFacts,
+    expected_interval_seconds,
+    parse_schedules,
+    parse_workflow,
+)
 
 H = 3600.0
 # Monday 2026-01-05 00:00:00 UTC
@@ -72,3 +77,61 @@ def test_interval_ignores_invalid_crons() -> None:
     assert expected_interval_seconds(["nonsense", "0 * * * *"], now=MONDAY) == H
     assert expected_interval_seconds(["nonsense"], now=MONDAY) is None
     assert expected_interval_seconds([], now=MONDAY) is None
+
+
+def test_parse_workflow_collects_triggers_and_calls() -> None:
+    text = """
+name: nightly
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "0 2 * * *"
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: make
+      - uses: actions/checkout@v4
+      - name: upload
+        uses: actions/upload-artifact@v4
+  notify:
+    needs: build
+    uses: ./.github/workflows/_notify.yml
+    secrets: inherit
+  deploy:
+    uses: acme/infra/.github/workflows/deploy.yml@v3
+"""
+    facts = parse_workflow(text)
+    assert facts.schedules == ["0 2 * * *"]
+    assert facts.triggers == ["workflow_dispatch", "schedule"]
+    assert facts.reusable_workflows == [
+        "./.github/workflows/_notify.yml",
+        "acme/infra/.github/workflows/deploy.yml@v3",
+    ]
+    # deduplicated, document order kept
+    assert facts.actions == ["actions/checkout@v4", "actions/upload-artifact@v4"]
+
+
+@pytest.mark.parametrize(
+    ("text", "triggers"),
+    [
+        ("on: push\njobs: {}\n", ["push"]),
+        ("on: [push, pull_request]\n", ["push", "pull_request"]),
+        ("on:\n  workflow_call:\n    inputs: {}\n", ["workflow_call"]),
+        ("true:\n  push:\n", ["push"]),
+    ],
+)
+def test_parse_workflow_trigger_shapes(text: str, triggers: list[str]) -> None:
+    facts = parse_workflow(text)
+    assert facts.triggers == triggers
+    assert facts.schedules == []
+
+
+def test_parse_workflow_ignores_malformed_jobs() -> None:
+    text = "on: push\njobs:\n  a: not-a-map\n  b:\n    uses: 42\n    steps: nope\n  c:\n    steps:\n      - uses: ''\n"
+    assert parse_workflow(text) == WorkflowFacts(triggers=["push"])
+
+
+def test_parse_workflow_broken_yaml_is_empty() -> None:
+    assert parse_workflow("on: [\n") == WorkflowFacts()

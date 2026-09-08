@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-09-08
+
+### Added
+- The workflow file read for `on.schedule` now also records what the file
+  declares besides its crons: `workflows.triggers[]` (the event names
+  under `on`), `workflows.reusable_workflows[]` (`jobs.*.uses`) and
+  `workflows.actions[]` (`jobs.*.steps[].uses`). No extra API request.
+  Migration `0002` adds the columns and clears `schedules_synced_at`, so
+  every file is re-read on the first cycle after the upgrade.
+
 ## [0.2.2] — 2026-09-05
 
 ### Fixed
