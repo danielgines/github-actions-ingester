@@ -103,7 +103,9 @@ def test_migrate_command(
     monkeypatch.setenv("GHA_DATABASE_SCHEMA", schema_name)
     monkeypatch.setenv("GHA_ORGS", "acme")
     assert main(["migrate"]) == 0
-    assert "applied now: ['0001_initial.sql']" in capsys.readouterr().out
+    assert "applied now: ['0001_initial.sql', '0002_workflow_file_facts.sql']" in (
+        capsys.readouterr().out
+    )
     assert main(["migrate"]) == 0
     assert "applied now: nothing" in capsys.readouterr().out
 
@@ -254,7 +256,7 @@ def test_run_once_end_to_end(
 
     store = Store(database_url, schema_name)
     try:
-        assert store.schema_version() == 1
+        assert store.schema_version() == 2
         assert store.counts() == {
             "repositories": 1,
             "workflows": 1,

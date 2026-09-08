@@ -7,6 +7,7 @@ import psycopg
 import pytest
 
 from github_actions_ingester.store import Migration, Store, load_migrations
+from github_actions_ingester.workflow_schedule import WorkflowFacts
 from tests.helpers import NOW, job, repo, run, workflow
 
 pytestmark = pytest.mark.integration
@@ -16,27 +17,30 @@ def test_migrations_load_in_order() -> None:
     ms = load_migrations()
     assert [m.version for m in ms] == sorted(m.version for m in ms)
     assert ms[0].version == 1 and ms[0].name == "0001_initial.sql"
+    assert ms[-1].version == len(ms)  # contiguous, no gaps
     assert len(ms[0].checksum) == 64
 
 
 def test_migrate_bootstraps_then_is_a_noop(store: Store) -> None:
     assert store.schema_version() is None
+    ms = load_migrations()
     first = store.migrate()
-    assert first.applied == ["0001_initial.sql"]
-    assert first.current_version == 1
+    assert first.applied == [m.name for m in ms]
+    assert first.current_version == ms[-1].version
     second = store.migrate()
     assert second.applied == []
-    assert store.schema_version() == 1
+    assert store.schema_version() == ms[-1].version
     assert store.ping()
 
 
 def test_migrate_applies_only_pending_and_keeps_order(store: Store) -> None:
     ms = load_migrations()
     store.migrate(ms)
-    extra = Migration(2, "0002_extra.sql", "CREATE TABLE extra (id INT)")
+    nxt = ms[-1].version + 1
+    extra = Migration(nxt, f"{nxt:04d}_extra.sql", "CREATE TABLE extra (id INT)")
     report = store.migrate([*ms, extra])
-    assert report.applied == ["0002_extra.sql"]
-    assert store.schema_version() == 2
+    assert report.applied == [extra.name]
+    assert store.schema_version() == nxt
     assert store.migrate([*ms, extra]).applied == []
 
 
@@ -75,13 +79,32 @@ def test_schedule_sync_bookkeeping(migrated_store: Store) -> None:
     pending = s.workflows_needing_schedule_sync(NOW)
     assert {int(r["id"]) for r in pending} == {10, 11}
     assert pending[0]["full_name"] == "acme/web" and pending[0]["default_branch"] == "main"
-    s.set_workflow_schedules(11, ["0 2 * * *"], 86400.0)
-    s.set_workflow_schedules(10, [], None)
+    s.set_workflow_facts(
+        11,
+        WorkflowFacts(
+            schedules=["0 2 * * *"],
+            triggers=["schedule", "workflow_dispatch"],
+            reusable_workflows=["./.github/workflows/_notify.yml"],
+            actions=["actions/checkout@v4"],
+        ),
+        86400.0,
+    )
+    s.set_workflow_facts(10, WorkflowFacts(), None)
     assert s.workflows_needing_schedule_sync(NOW - timedelta(days=1)) == []
     status = s.scheduled_workflow_status()
     assert len(status) == 1
     assert status[0]["name"] == "Nightly" and status[0]["interval_seconds"] == 86400.0
     assert status[0]["last_scheduled_run_at"] is None
+    facts = s.workflow_facts(11)
+    assert facts["triggers"] == ["schedule", "workflow_dispatch"]
+    assert facts["reusable_workflows"] == ["./.github/workflows/_notify.yml"]
+    assert facts["actions"] == ["actions/checkout@v4"]
+    assert s.workflow_facts(10) == {
+        "schedules": [],
+        "triggers": [],
+        "reusable_workflows": [],
+        "actions": [],
+    }
 
 
 def test_runs_jobs_and_completion_derivation(migrated_store: Store) -> None:
@@ -204,7 +227,7 @@ def test_scheduled_status_reports_last_scheduled_run(migrated_store: Store) -> N
     s = migrated_store
     s.upsert_repositories([repo(1)])
     s.upsert_workflows([workflow(10, 1)])
-    s.set_workflow_schedules(10, ["0 * * * *"], 3600.0)
+    s.set_workflow_facts(10, WorkflowFacts(schedules=["0 * * * *"]), 3600.0)
     s.upsert_runs(
         [
             run(1, event="schedule", created_at=NOW - timedelta(hours=3), conclusion="failure"),
@@ -278,3 +301,20 @@ def test_grant_read_access_requires_an_existing_role(migrated_store: Store) -> N
 def _with_userinfo(url: str) -> str:
     """pgserver URIs carry no user:pass; give the substitution something to replace."""
     return url if "@" in url else url.replace("://", "://x:y@", 1)
+
+
+def test_upgrade_to_0002_forces_a_file_resync(store: Store) -> None:
+    # A database created by 0001 has every file marked as synced. 0002 adds
+    # the file-fact columns and must clear the mark so they fill on the
+    # next cycle instead of after the refresh window.
+    ms = load_migrations()
+    store.migrate(ms[:1])
+    store.upsert_repositories([repo(1)])
+    store.upsert_workflows([workflow(10, 1)])
+    conn = store.connect()
+    with conn.transaction(), conn.cursor() as cur:
+        cur.execute("UPDATE workflows SET schedules_synced_at = now()")
+    assert store.workflows_needing_schedule_sync(NOW - timedelta(days=1)) == []
+    assert store.migrate(ms).applied == ["0002_workflow_file_facts.sql"]
+    assert [int(r["id"]) for r in store.workflows_needing_schedule_sync(NOW)] == [10]
+    assert store.workflow_facts(10)["reusable_workflows"] == []

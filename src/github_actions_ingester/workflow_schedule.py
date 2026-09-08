@@ -1,6 +1,14 @@
-"""Extract ``on.schedule`` cron expressions from a workflow file.
+"""Read what a workflow file declares: its triggers, its crons and what it calls.
 
-Only the trigger block is inspected; the rest of the workflow is ignored.
+The file is fetched once (see ``Collector.sync_schedules``) and every fact
+comes out of the same parse:
+
+  * ``on.schedule[].cron`` powers the scheduled-workflow liveness metrics;
+  * the event names under ``on`` say what else starts the workflow
+    (``push``, ``workflow_dispatch``, ``workflow_call`` ...);
+  * ``jobs.*.uses`` lists the reusable workflows it calls, and
+    ``jobs.*.steps[].uses`` the actions.
+
 YAML 1.1 parses the bare key ``on`` as the boolean ``True`` (PyYAML follows
 that spec), so both spellings are looked up.
 """
@@ -8,6 +16,7 @@ that spec), so both spellings are looked up.
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass, field
 from itertools import pairwise
 from typing import Any
 
@@ -15,33 +24,92 @@ import yaml
 from croniter import croniter
 
 
-def parse_schedules(workflow_yaml: str) -> list[str]:
-    """Return the cron expressions declared under ``on.schedule``.
+@dataclass(frozen=True)
+class WorkflowFacts:
+    """Everything the ingester keeps from a workflow file."""
 
-    Returns an empty list for workflows without a schedule trigger and for
-    files that do not parse (a broken workflow never runs anyway).
-    """
+    schedules: list[str] = field(default_factory=list)
+    triggers: list[str] = field(default_factory=list)
+    reusable_workflows: list[str] = field(default_factory=list)
+    actions: list[str] = field(default_factory=list)
+
+
+def _load(workflow_yaml: str) -> dict[Any, Any] | None:
     try:
         doc = yaml.safe_load(workflow_yaml)
     except yaml.YAMLError:
-        return []
-    if not isinstance(doc, dict):
-        return []
-    triggers: Any = doc.get("on")
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _triggers_block(doc: dict[Any, Any]) -> Any:
+    triggers = doc.get("on")
     if triggers is None:
         triggers = doc.get(True)
-    if not isinstance(triggers, dict):
-        return []
-    schedule = triggers.get("schedule")
-    if not isinstance(schedule, list):
-        return []
+    return triggers
+
+
+def _dedupe(values: list[str]) -> list[str]:
+    return list(dict.fromkeys(values))
+
+
+def parse_workflow(workflow_yaml: str) -> WorkflowFacts:
+    """Return the facts declared by a workflow file.
+
+    Returns empty facts for files that do not parse (a broken workflow
+    never runs anyway). Lists keep document order and are deduplicated.
+    """
+    doc = _load(workflow_yaml)
+    if doc is None:
+        return WorkflowFacts()
+
+    triggers = _triggers_block(doc)
     crons: list[str] = []
-    for entry in schedule:
-        if isinstance(entry, dict):
-            cron = entry.get("cron")
-            if isinstance(cron, str) and cron.strip():
-                crons.append(" ".join(cron.split()))
-    return crons
+    events: list[str] = []
+    if isinstance(triggers, str):
+        events = [triggers]
+    elif isinstance(triggers, list):
+        events = [e for e in triggers if isinstance(e, str)]
+    elif isinstance(triggers, dict):
+        events = [str(k) for k in triggers]
+        schedule = triggers.get("schedule")
+        if isinstance(schedule, list):
+            for entry in schedule:
+                if isinstance(entry, dict):
+                    cron = entry.get("cron")
+                    if isinstance(cron, str) and cron.strip():
+                        crons.append(" ".join(cron.split()))
+
+    reusable: list[str] = []
+    actions: list[str] = []
+    jobs = doc.get("jobs")
+    if isinstance(jobs, dict):
+        for job in jobs.values():
+            if not isinstance(job, dict):
+                continue
+            uses = job.get("uses")
+            if isinstance(uses, str) and uses.strip():
+                reusable.append(uses.strip())
+            steps = job.get("steps")
+            if not isinstance(steps, list):
+                continue
+            for step in steps:
+                if isinstance(step, dict):
+                    uses = step.get("uses")
+                    if isinstance(uses, str) and uses.strip():
+                        actions.append(uses.strip())
+
+    return WorkflowFacts(
+        schedules=crons,
+        triggers=_dedupe(events),
+        reusable_workflows=_dedupe(reusable),
+        actions=_dedupe(actions),
+    )
+
+
+def parse_schedules(workflow_yaml: str) -> list[str]:
+    """Return the cron expressions declared under ``on.schedule``."""
+    return parse_workflow(workflow_yaml).schedules
 
 
 def expected_interval_seconds(

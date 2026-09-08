@@ -44,7 +44,11 @@ class FakeGitHub:
             2: [workflow(20, 2, "Deploy")],
         }
         self.files: dict[str, str | None] = {
-            "acme/web:.github/workflows/nightly.yml": "on:\n  schedule:\n    - cron: '0 2 * * *'\n",
+            "acme/web:.github/workflows/nightly.yml": (
+                "on:\n  schedule:\n    - cron: '0 2 * * *'\n"
+                "jobs:\n  build:\n    steps:\n      - uses: actions/checkout@v4\n"
+                "  notify:\n    uses: ./.github/workflows/_notify.yml\n"
+            ),
             "acme/web:.github/workflows/ci.yml": "on: push\n",
             "acme/api:.github/workflows/deploy.yml": None,
         }
@@ -188,6 +192,14 @@ def test_first_cycle_backfills_everything(migrated_store: Store, clock: list[dat
         "workflow_name": "Nightly",
     }
     assert _gauge(m, "gha_scheduled_workflow_interval_seconds", **labels) == 86400
+    # the same read records the triggers and what the file calls
+    assert migrated_store.workflow_facts(11) == {
+        "schedules": ["0 2 * * *"],
+        "triggers": ["schedule"],
+        "reusable_workflows": ["./.github/workflows/_notify.yml"],
+        "actions": ["actions/checkout@v4"],
+    }
+    assert migrated_store.workflow_facts(10)["triggers"] == ["push"]
     assert (
         _gauge(m, "gha_scheduled_workflow_last_run_timestamp_seconds", **labels) == NOW.timestamp()
     )

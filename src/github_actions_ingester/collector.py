@@ -41,7 +41,7 @@ from .github import (
 )
 from .metrics import Metrics
 from .store import Store
-from .workflow_schedule import expected_interval_seconds, parse_schedules
+from .workflow_schedule import WorkflowFacts, expected_interval_seconds, parse_workflow
 
 logger = structlog.get_logger(__name__)
 
@@ -161,8 +161,8 @@ class Collector:
             )
             path = str(row["path"])
             # Dynamic workflows (e.g. "dynamic/pages/pages-build-deployment")
-            # have no file in the tree; record an empty schedule.
-            crons: list[str] = []
+            # have no file in the tree; record empty facts.
+            facts = WorkflowFacts()
             if path.startswith(".github/workflows/"):
                 try:
                     text = self._client.get_file_text(repo, path, repo.default_branch)
@@ -172,9 +172,9 @@ class Collector:
                     )
                     self._metrics.errors_total.labels(stage="schedules").inc()
                     continue
-                crons = parse_schedules(text) if text else []
-            interval = expected_interval_seconds(crons) if crons else None
-            self._store.set_workflow_schedules(int(row["id"]), crons, interval)
+                facts = parse_workflow(text) if text else WorkflowFacts()
+            interval = expected_interval_seconds(facts.schedules) if facts.schedules else None
+            self._store.set_workflow_facts(int(row["id"]), facts, interval)
             synced += 1
         if rows:
             logger.info("schedules.synced", workflows=synced, of=len(rows))

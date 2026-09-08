@@ -167,7 +167,8 @@ class Settings(BaseSettings):
     sync_schedules: bool = Field(
         default=True,
         description="Read each workflow file from the default branch and "
-        "record its `on.schedule` cron expressions (needs `Contents: read`). "
+        "record its `on.schedule` cron expressions, its trigger events and "
+        "what it calls (`jobs.*.uses`, `steps[].uses`); needs `Contents: read`. "
         "Powers the scheduled-workflow liveness metrics.",
     )
     schedule_refresh_seconds: int = Field(default=21600, ge=300)
