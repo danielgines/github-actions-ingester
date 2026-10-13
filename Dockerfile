@@ -9,7 +9,7 @@
 # step (none today — the wheel is pure Python, psycopg ships a binary
 # wheel) cannot surface an ABI mismatch between stages.
 
-FROM ghcr.io/astral-sh/uv:0.12-python3.13-trixie-slim AS builder
+FROM ghcr.io/astral-sh/uv:0.13-python3.13-trixie-slim AS builder
 
 WORKDIR /build
 
